@@ -23,12 +23,28 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
   List<dynamic> topStoryIds = [];
   List<dynamic> stories = [];
 
+  final ScrollController _scrollController = ScrollController();
+
   bool isLoading = true;
+  bool isFetchingMore = false;
+
+  int currentIndex = 0;
+
+  static const int batchSize = 20;
 
   @override
   void initState() {
     super.initState();
+
     fetchTopStories();
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >=
+              _scrollController.position.maxScrollExtent - 300 &&
+          !isFetchingMore) {
+        loadMoreStories();
+      }
+    });
   }
 
   Future<void> fetchTopStories() async {
@@ -39,24 +55,58 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
 
       topStoryIds = jsonDecode(response.body);
 
-      for (int i = 0; i < 20; i++) {
-        final storyResponse = await http.get(
-          Uri.parse(
-            'https://hacker-news.firebaseio.com/v0/item/${topStoryIds[i]}.json',
-          ),
-        );
+      await loadMoreStories();
 
-        final storyData = jsonDecode(storyResponse.body);
-
-        stories.add(storyData);
-      }
+      if (!mounted) return;
 
       setState(() {
         isLoading = false;
       });
     } catch (e) {
       debugPrint(e.toString());
+
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+      });
     }
+  }
+
+  Future<void> loadMoreStories() async {
+    if (isFetchingMore) return;
+
+    isFetchingMore = true;
+
+    int endIndex = currentIndex + batchSize;
+
+    if (endIndex > topStoryIds.length) {
+      endIndex = topStoryIds.length;
+    }
+
+    for (int i = currentIndex; i < endIndex; i++) {
+      final storyResponse = await http.get(
+        Uri.parse(
+          'https://hacker-news.firebaseio.com/v0/item/${topStoryIds[i]}.json',
+        ),
+      );
+
+      if (storyResponse.statusCode == 200) {
+        final storyData = jsonDecode(storyResponse.body);
+
+        if (storyData != null) {
+          stories.add(storyData);
+        }
+      }
+    }
+
+    currentIndex = endIndex;
+
+    isFetchingMore = false;
+
+    if (!mounted) return;
+
+    setState(() {});
   }
 
   String extractDomain(String url) {
@@ -74,17 +124,27 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF6F6EF),
 
       appBar: AppBar(
         backgroundColor: const Color(0xFFFF6600),
+
         elevation: 0,
         titleSpacing: 0,
+
         leading: const Icon(Icons.newspaper, color: Colors.white),
+
         title: const Text(
           'Hacker News',
+
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
@@ -94,19 +154,36 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
               child: CircularProgressIndicator(color: Color(0xFFFF6600)),
             )
           : ListView.separated(
-              itemCount: stories.length,
+              controller: _scrollController,
+
+              itemCount: stories.length + 1,
 
               separatorBuilder: (context, index) {
                 return const Divider(height: 1, color: Color(0xFFE0E0E0));
               },
 
               itemBuilder: (context, index) {
+                if (index == stories.length) {
+                  return currentIndex >= topStoryIds.length
+                      ? const SizedBox()
+                      : const Padding(
+                          padding: EdgeInsets.all(20),
+
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFFFF6600),
+                            ),
+                          ),
+                        );
+                }
+
                 final story = stories[index];
 
                 return InkWell(
                   onTap: () {
                     Navigator.push(
                       context,
+
                       MaterialPageRoute(
                         builder: (_) => DetailScreen(story: story),
                       ),
@@ -121,14 +198,17 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
 
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
+
                       children: [
                         SizedBox(
                           width: 28,
 
                           child: Text(
                             '${index + 1}.',
+
                             style: const TextStyle(
                               color: Color(0xFF828282),
+
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -143,7 +223,9 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
                                 text: TextSpan(
                                   style: const TextStyle(
                                     color: Colors.black,
+
                                     fontSize: 16,
+
                                     fontWeight: FontWeight.w600,
                                   ),
 
@@ -158,7 +240,9 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
 
                                       style: const TextStyle(
                                         color: Color(0xFF828282),
+
                                         fontSize: 12,
+
                                         fontWeight: FontWeight.normal,
                                       ),
                                     ),
@@ -175,12 +259,14 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
 
                                     style: const TextStyle(
                                       color: Color(0xFF828282),
+
                                       fontSize: 12,
                                     ),
                                   ),
 
                                   const Text(
                                     ' | ',
+
                                     style: TextStyle(color: Color(0xFF828282)),
                                   ),
 
@@ -189,6 +275,7 @@ class _HackerNewsScreenState extends State<HackerNewsScreen> {
 
                                     style: const TextStyle(
                                       color: Color(0xFFFF6600),
+
                                       fontSize: 12,
                                     ),
                                   ),
@@ -224,6 +311,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
+
     fetchComments();
   }
 
@@ -239,7 +327,7 @@ class _DetailScreenState extends State<DetailScreen> {
         return;
       }
 
-      for (int i = 0; i < kids.length && i < 20; i++) {
+      for (int i = 0; i < kids.length; i++) {
         final response = await http.get(
           Uri.parse(
             'https://hacker-news.firebaseio.com/v0/item/${kids[i]}.json',
@@ -248,7 +336,11 @@ class _DetailScreenState extends State<DetailScreen> {
 
         final commentData = jsonDecode(response.body);
 
-        comments.add(commentData);
+        if (commentData != null &&
+            commentData['deleted'] != true &&
+            commentData['dead'] != true) {
+          comments.add(commentData);
+        }
       }
 
       setState(() {
@@ -259,17 +351,44 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  String cleanHtml(String text) {
+    return text
+        .replaceAll('<p>', '\n\n')
+        .replaceAll('</p>', '')
+        .replaceAll('&#x27;', "'")
+        .replaceAll('&quot;', '"')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&lt;', '<');
+  }
+
+  String getDomain(String? url) {
+    if (url == null || url.isEmpty) {
+      return 'No external link';
+    }
+
+    try {
+      return Uri.parse(url).host.replaceFirst('www.', '');
+    } catch (e) {
+      return 'Invalid URL';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String? articleUrl = widget.story['url'];
+
     return Scaffold(
       backgroundColor: const Color(0xFFF6F6EF),
 
       appBar: AppBar(
         backgroundColor: const Color(0xFFFF6600),
 
+        elevation: 0,
+
         title: const Text(
           'Story Details',
-          style: TextStyle(color: Colors.white),
+
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
 
@@ -278,90 +397,316 @@ class _DetailScreenState extends State<DetailScreen> {
 
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.story['title'] ?? 'No Title',
 
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+          children: [
+            Container(
+              width: double.infinity,
+
+              padding: const EdgeInsets.all(18),
+
+              decoration: BoxDecoration(
+                color: Colors.white,
+
+                borderRadius: BorderRadius.circular(18),
+              ),
+
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+
+                children: [
+                  Text(
+                    widget.story['title'] ?? 'No Title',
+
+                    style: const TextStyle(
+                      fontSize: 26,
+
+                      fontWeight: FontWeight.bold,
+
+                      height: 1.3,
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Text(
+                    getDomain(articleUrl),
+
+                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Author',
+
+                                style: TextStyle(
+                                  color: Colors.grey,
+
+                                  fontSize: 12,
+                                ),
+                              ),
+
+                              const SizedBox(height: 4),
+
+                              Text(
+                                widget.story['by'] ?? 'Unknown',
+
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Score',
+
+                                style: TextStyle(
+                                  color: Colors.grey,
+
+                                  fontSize: 12,
+                                ),
+                              ),
+
+                              const SizedBox(height: 4),
+
+                              Text(
+                                '${widget.story['score'] ?? 0}',
+
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Comments',
+
+                                style: TextStyle(
+                                  color: Colors.grey,
+
+                                  fontSize: 12,
+                                ),
+                              ),
+
+                              const SizedBox(height: 4),
+
+                              Text(
+                                '${widget.story['descendants'] ?? 0}',
+
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (articleUrl != null)
+                    Column(
+                      children: [
+                        const SizedBox(height: 20),
+
+                        Container(
+                          width: double.infinity,
+
+                          padding: const EdgeInsets.all(14),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+
+                            children: [
+                              const Text(
+                                'External Link',
+
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+
+                                  fontSize: 16,
+                                ),
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              SelectableText(
+                                articleUrl,
+
+                                style: const TextStyle(
+                                  color: Colors.blue,
+
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                  if (widget.story['text'] != null)
+                    Column(
+                      children: [
+                        const SizedBox(height: 20),
+
+                        Container(
+                          width: double.infinity,
+
+                          padding: const EdgeInsets.all(14),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+
+                          child: Text(
+                            cleanHtml(widget.story['text']),
+
+                            style: const TextStyle(fontSize: 15, height: 1.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
 
-            const SizedBox(height: 12),
-
-            Text('Author: ${widget.story['by'] ?? 'Unknown'}'),
-
-            const SizedBox(height: 6),
-
-            Text('Score: ${widget.story['score'] ?? 0}'),
-
-            const SizedBox(height: 6),
-
-            Text('Comments: ${widget.story['descendants'] ?? 0}'),
-
-            const SizedBox(height: 30),
+            const SizedBox(height: 28),
 
             const Text(
               'Comments',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
 
             const SizedBox(height: 16),
 
-            isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFFF6600)),
-                  )
-                : comments.isEmpty
-                ? const Text('No comments available')
-                : ListView.builder(
-                    itemCount: comments.length,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
+            if (isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(30),
 
-                    itemBuilder: (context, index) {
-                      final comment = comments[index];
+                  child: CircularProgressIndicator(color: Color(0xFFFF6600)),
+                ),
+              )
+            else if (comments.isEmpty)
+              Container(
+                width: double.infinity,
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(20),
 
-                        padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
 
-                        decoration: BoxDecoration(
-                          color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                ),
 
-                          borderRadius: BorderRadius.circular(10),
+                child: const Text('No comments available.'),
+              )
+            else
+              ListView.builder(
+                itemCount: comments.length,
 
-                          border: Border.all(color: Colors.grey.shade300),
+                shrinkWrap: true,
+
+                physics: const NeverScrollableScrollPhysics(),
+
+                itemBuilder: (context, index) {
+                  final comment = comments[index];
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+
+                    padding: const EdgeInsets.all(14),
+
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+
+                      children: [
+                        Text(
+                          comment['by'] ?? 'Unknown',
+
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+
+                            color: Color(0xFFFF6600),
+                          ),
                         ),
 
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(height: 10),
 
-                          children: [
-                            Text(
-                              comment['by'] ?? 'Unknown',
+                        Text(
+                          cleanHtml(comment['text'] ?? 'No Comment'),
 
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFF6600),
-                              ),
-                            ),
-
-                            const SizedBox(height: 8),
-
-                            Text(
-                              (comment['text'] ?? 'No Comment')
-                                  .replaceAll('<p>', '\n\n')
-                                  .replaceAll('</p>', '')
-                                  .replaceAll('&#x27;', "'")
-                                  .replaceAll('&quot;', '"'),
-
-                              style: const TextStyle(fontSize: 14, height: 1.5),
-                            ),
-                          ],
+                          style: const TextStyle(fontSize: 14, height: 1.6),
                         ),
-                      );
-                    },
-                  ),
+                      ],
+                    ),
+                  );
+                },
+              ),
           ],
         ),
       ),

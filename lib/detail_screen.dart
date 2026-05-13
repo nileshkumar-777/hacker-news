@@ -1,8 +1,6 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 
 class DetailScreen extends StatefulWidget {
   final Map<String, dynamic> story;
@@ -21,6 +19,7 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   void initState() {
     super.initState();
+
     fetchComments();
   }
 
@@ -36,7 +35,7 @@ class _DetailScreenState extends State<DetailScreen> {
         return;
       }
 
-      for (int i = 0; i < kids.length && i < 20; i++) {
+      for (int i = 0; i < kids.length; i++) {
         final response = await http.get(
           Uri.parse(
             'https://hacker-news.firebaseio.com/v0/item/${kids[i]}.json',
@@ -45,7 +44,11 @@ class _DetailScreenState extends State<DetailScreen> {
 
         final commentData = jsonDecode(response.body);
 
-        comments.add(commentData);
+        if (commentData != null &&
+            commentData['deleted'] != true &&
+            commentData['dead'] != true) {
+          comments.add(commentData);
+        }
       }
 
       setState(() {
@@ -53,18 +56,6 @@ class _DetailScreenState extends State<DetailScreen> {
       });
     } catch (e) {
       debugPrint(e.toString());
-    }
-  }
-
-  Future<void> openArticle() async {
-    final url = widget.story['url'];
-
-    if (url == null) return;
-
-    final Uri uri = Uri.parse(url);
-
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -78,17 +69,34 @@ class _DetailScreenState extends State<DetailScreen> {
         .replaceAll('&lt;', '<');
   }
 
+  String getDomain(String? url) {
+    if (url == null || url.isEmpty) {
+      return 'No external link';
+    }
+
+    try {
+      return Uri.parse(url).host.replaceFirst('www.', '');
+    } catch (e) {
+      return 'Invalid URL';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String? articleUrl = widget.story['url'];
+
     return Scaffold(
       backgroundColor: const Color(0xFFF6F6EF),
 
       appBar: AppBar(
         backgroundColor: const Color(0xFFFF6600),
 
+        elevation: 0,
+
         title: const Text(
           'Story Details',
-          style: TextStyle(color: Colors.white),
+
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
       ),
 
@@ -99,160 +107,314 @@ class _DetailScreenState extends State<DetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
 
           children: [
-            Text(
-              widget.story['title'] ?? 'No Title',
+            Container(
+              width: double.infinity,
 
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
+              padding: const EdgeInsets.all(18),
 
-            const SizedBox(height: 14),
+              decoration: BoxDecoration(
+                color: Colors.white,
 
-            Wrap(
-              spacing: 10,
-              runSpacing: 8,
+                borderRadius: BorderRadius.circular(18),
+              ),
 
-              children: [
-                Text(
-                  'Author: ${widget.story['by'] ?? 'Unknown'}',
-                  style: const TextStyle(fontSize: 15),
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
 
-                Text(
-                  'Score: ${widget.story['score'] ?? 0}',
-                  style: const TextStyle(fontSize: 15),
-                ),
+                children: [
+                  Text(
+                    widget.story['title'] ?? 'No Title',
 
-                Text(
-                  'Comments: ${widget.story['descendants'] ?? 0}',
-                  style: const TextStyle(fontSize: 15),
-                ),
-              ],
-            ),
+                    style: const TextStyle(
+                      fontSize: 26,
 
-            const SizedBox(height: 20),
+                      fontWeight: FontWeight.bold,
 
-            if (widget.story['url'] != null)
-              GestureDetector(
-                onTap: openArticle,
-
-                child: Text(
-                  widget.story['url'],
-
-                  style: const TextStyle(
-                    color: Colors.blue,
-                    fontSize: 15,
-                    decoration: TextDecoration.underline,
+                      height: 1.3,
+                    ),
                   ),
-                ),
-              )
-            else
-              Container(
-                width: double.infinity,
 
-                padding: const EdgeInsets.all(14),
+                  const SizedBox(height: 10),
 
-                decoration: BoxDecoration(
-                  color: Colors.white,
+                  Text(
+                    getDomain(articleUrl),
 
-                  borderRadius: BorderRadius.circular(10),
+                    style: const TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
 
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
+                  const SizedBox(height: 20),
 
-                child: const Text(
-                  'This story does not contain an external article link.',
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
 
-                  style: TextStyle(fontSize: 15),
-                ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Author',
+
+                                style: TextStyle(
+                                  color: Colors.grey,
+
+                                  fontSize: 12,
+                                ),
+                              ),
+
+                              const SizedBox(height: 4),
+
+                              Text(
+                                widget.story['by'] ?? 'Unknown',
+
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Score',
+
+                                style: TextStyle(
+                                  color: Colors.grey,
+
+                                  fontSize: 12,
+                                ),
+                              ),
+
+                              const SizedBox(height: 4),
+
+                              Text(
+                                '${widget.story['score'] ?? 0}',
+
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 10),
+
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+
+                          child: Column(
+                            children: [
+                              const Text(
+                                'Comments',
+
+                                style: TextStyle(
+                                  color: Colors.grey,
+
+                                  fontSize: 12,
+                                ),
+                              ),
+
+                              const SizedBox(height: 4),
+
+                              Text(
+                                '${widget.story['descendants'] ?? 0}',
+
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  if (articleUrl != null)
+                    Column(
+                      children: [
+                        const SizedBox(height: 20),
+
+                        Container(
+                          width: double.infinity,
+
+                          padding: const EdgeInsets.all(14),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+
+                            children: [
+                              const Text(
+                                'External Link',
+
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+
+                                  fontSize: 16,
+                                ),
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              SelectableText(
+                                articleUrl,
+
+                                style: const TextStyle(
+                                  color: Colors.blue,
+
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                  if (widget.story['text'] != null)
+                    Column(
+                      children: [
+                        const SizedBox(height: 20),
+
+                        Container(
+                          width: double.infinity,
+
+                          padding: const EdgeInsets.all(14),
+
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8F8F8),
+
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+
+                          child: Text(
+                            cleanHtml(widget.story['text']),
+
+                            style: const TextStyle(fontSize: 15, height: 1.6),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
               ),
+            ),
 
-            const SizedBox(height: 20),
-
-            if (widget.story['text'] != null)
-              Container(
-                width: double.infinity,
-
-                padding: const EdgeInsets.all(14),
-
-                decoration: BoxDecoration(
-                  color: Colors.white,
-
-                  borderRadius: BorderRadius.circular(10),
-
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-
-                child: Text(
-                  cleanHtml(widget.story['text']),
-
-                  style: const TextStyle(fontSize: 15, height: 1.6),
-                ),
-              ),
-
-            const SizedBox(height: 30),
+            const SizedBox(height: 28),
 
             const Text(
               'Comments',
 
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
 
             const SizedBox(height: 16),
 
-            isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFFFF6600)),
-                  )
-                : comments.isEmpty
-                ? const Text('No comments available')
-                : ListView.builder(
-                    itemCount: comments.length,
+            if (isLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(30),
 
-                    shrinkWrap: true,
+                  child: CircularProgressIndicator(color: Color(0xFFFF6600)),
+                ),
+              )
+            else if (comments.isEmpty)
+              Container(
+                width: double.infinity,
 
-                    physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(20),
 
-                    itemBuilder: (context, index) {
-                      final comment = comments[index];
+                decoration: BoxDecoration(
+                  color: Colors.white,
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
 
-                        padding: const EdgeInsets.all(12),
+                child: const Text('No comments available.'),
+              )
+            else
+              ListView.builder(
+                itemCount: comments.length,
 
-                        decoration: BoxDecoration(
-                          color: Colors.white,
+                shrinkWrap: true,
 
-                          borderRadius: BorderRadius.circular(10),
+                physics: const NeverScrollableScrollPhysics(),
 
-                          border: Border.all(color: Colors.grey.shade300),
+                itemBuilder: (context, index) {
+                  final comment = comments[index];
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 14),
+
+                    padding: const EdgeInsets.all(14),
+
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+
+                      children: [
+                        Text(
+                          comment['by'] ?? 'Unknown',
+
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+
+                            color: Color(0xFFFF6600),
+                          ),
                         ),
 
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        const SizedBox(height: 10),
 
-                          children: [
-                            Text(
-                              comment['by'] ?? 'Unknown',
+                        Text(
+                          cleanHtml(comment['text'] ?? 'No Comment'),
 
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFF6600),
-                              ),
-                            ),
-
-                            const SizedBox(height: 8),
-
-                            Text(
-                              cleanHtml(comment['text'] ?? 'No Comment'),
-
-                              style: const TextStyle(fontSize: 14, height: 1.5),
-                            ),
-                          ],
+                          style: const TextStyle(fontSize: 14, height: 1.6),
                         ),
-                      );
-                    },
-                  ),
+                      ],
+                    ),
+                  );
+                },
+              ),
           ],
         ),
       ),
