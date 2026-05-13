@@ -14,13 +14,30 @@ class DetailScreen extends StatefulWidget {
 class _DetailScreenState extends State<DetailScreen> {
   List<dynamic> comments = [];
 
+  List<dynamic> allCommentIds = [];
+
+  final ScrollController _scrollController = ScrollController();
+
   bool isLoading = true;
+  bool isFetchingMore = false;
+
+  int currentCommentIndex = 0;
+
+  static const int commentBatchSize = 20;
 
   @override
   void initState() {
     super.initState();
 
     fetchComments();
+
+    _scrollController.addListener(() {
+      if (_scrollController.position.pixels >=
+              _scrollController.position.maxScrollExtent - 300 &&
+          !isFetchingMore) {
+        loadMoreComments();
+      }
+    });
   }
 
   Future<void> fetchComments() async {
@@ -35,21 +52,9 @@ class _DetailScreenState extends State<DetailScreen> {
         return;
       }
 
-      for (int i = 0; i < kids.length; i++) {
-        final response = await http.get(
-          Uri.parse(
-            'https://hacker-news.firebaseio.com/v0/item/${kids[i]}.json',
-          ),
-        );
+      allCommentIds = kids;
 
-        final commentData = jsonDecode(response.body);
-
-        if (commentData != null &&
-            commentData['deleted'] != true &&
-            commentData['dead'] != true) {
-          comments.add(commentData);
-        }
-      }
+      await loadMoreComments();
 
       setState(() {
         isLoading = false;
@@ -57,6 +62,42 @@ class _DetailScreenState extends State<DetailScreen> {
     } catch (e) {
       debugPrint(e.toString());
     }
+  }
+
+  Future<void> loadMoreComments() async {
+    if (isFetchingMore) return;
+
+    isFetchingMore = true;
+
+    int endIndex = currentCommentIndex + commentBatchSize;
+
+    if (endIndex > allCommentIds.length) {
+      endIndex = allCommentIds.length;
+    }
+
+    for (int i = currentCommentIndex; i < endIndex; i++) {
+      final response = await http.get(
+        Uri.parse(
+          'https://hacker-news.firebaseio.com/v0/item/${allCommentIds[i]}.json',
+        ),
+      );
+
+      final commentData = jsonDecode(response.body);
+
+      if (commentData != null &&
+          commentData['deleted'] != true &&
+          commentData['dead'] != true) {
+        comments.add(commentData);
+      }
+    }
+
+    currentCommentIndex = endIndex;
+
+    isFetchingMore = false;
+
+    if (!mounted) return;
+
+    setState(() {});
   }
 
   String cleanHtml(String text) {
@@ -81,6 +122,127 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
+  Widget buildCommentCard(dynamic comment, int level) {
+    final kids = comment['kids'] ?? [];
+
+    return StatefulBuilder(
+      builder: (context, setLocalState) {
+        bool isRepliesLoading = false;
+
+        List<dynamic> replies = comment['nestedComments'] ?? [];
+
+        Future<void> loadReplies() async {
+          if (replies.isNotEmpty) {
+            return;
+          }
+
+          setLocalState(() {
+            isRepliesLoading = true;
+          });
+
+          List<dynamic> loadedReplies = [];
+
+          for (int i = 0; i < kids.length; i++) {
+            final response = await http.get(
+              Uri.parse(
+                'https://hacker-news.firebaseio.com/v0/item/${kids[i]}.json',
+              ),
+            );
+
+            final replyData = jsonDecode(response.body);
+
+            if (replyData != null &&
+                replyData['deleted'] != true &&
+                replyData['dead'] != true) {
+              loadedReplies.add(replyData);
+            }
+          }
+
+          comment['nestedComments'] = loadedReplies;
+
+          replies = loadedReplies;
+
+          setLocalState(() {
+            isRepliesLoading = false;
+          });
+        }
+
+        return Container(
+          margin: EdgeInsets.only(bottom: 14, left: level * 16),
+
+          padding: const EdgeInsets.all(14),
+
+          decoration: BoxDecoration(
+            color: Colors.white,
+
+            borderRadius: BorderRadius.circular(16),
+
+            border: Border.all(
+              color: level == 0 ? Colors.transparent : Colors.orange.shade100,
+            ),
+          ),
+
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+
+            children: [
+              Text(
+                comment['by'] ?? 'Unknown',
+
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFF6600),
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
+              Text(
+                cleanHtml(comment['text'] ?? 'No Comment'),
+
+                style: const TextStyle(fontSize: 14, height: 1.6),
+              ),
+
+              if (kids.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+
+                  child: GestureDetector(
+                    onTap: loadReplies,
+
+                    child: Text(
+                      isRepliesLoading
+                          ? 'Loading replies...'
+                          : 'View replies (${kids.length})',
+
+                      style: const TextStyle(
+                        color: Color(0xFFFF6600),
+
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+
+              if (replies.isNotEmpty) const SizedBox(height: 14),
+
+              ...replies.map<Widget>((reply) {
+                return buildCommentCard(reply, level + 1);
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final String? articleUrl = widget.story['url'];
@@ -101,6 +263,8 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
 
       body: SingleChildScrollView(
+        controller: _scrollController,
+
         padding: const EdgeInsets.all(16),
 
         child: Column(
@@ -369,50 +533,30 @@ class _DetailScreenState extends State<DetailScreen> {
               )
             else
               ListView.builder(
-                itemCount: comments.length,
+                itemCount: comments.length + 1,
 
                 shrinkWrap: true,
 
                 physics: const NeverScrollableScrollPhysics(),
 
                 itemBuilder: (context, index) {
+                  if (index == comments.length) {
+                    return currentCommentIndex >= allCommentIds.length
+                        ? const SizedBox()
+                        : const Padding(
+                            padding: EdgeInsets.all(20),
+
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFFFF6600),
+                              ),
+                            ),
+                          );
+                  }
+
                   final comment = comments[index];
 
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 14),
-
-                    padding: const EdgeInsets.all(14),
-
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-
-                      children: [
-                        Text(
-                          comment['by'] ?? 'Unknown',
-
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-
-                            color: Color(0xFFFF6600),
-                          ),
-                        ),
-
-                        const SizedBox(height: 10),
-
-                        Text(
-                          cleanHtml(comment['text'] ?? 'No Comment'),
-
-                          style: const TextStyle(fontSize: 14, height: 1.6),
-                        ),
-                      ],
-                    ),
-                  );
+                  return buildCommentCard(comment, 0);
                 },
               ),
           ],
